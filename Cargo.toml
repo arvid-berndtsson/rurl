@@ -1,0 +1,5 @@
+[package]
+name = "rurl"
+version = "0.1.0"
+edition = "2021"
+description = "A minimal HTTP client with no dependencies"
