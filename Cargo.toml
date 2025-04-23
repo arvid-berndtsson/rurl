@@ -3,3 +3,16 @@ name = "rurl"
 version = "0.1.0"
 edition = "2021"
 description = "A minimal HTTP client with no dependencies"
+authors = ["Arvid Berndtsson <git@arvid.tech>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/arvid-berndtsson/rurl"
+keywords = ["http", "client", "curl", "minimal"]
+categories = ["command-line-utilities", "web-programming"]
+
+[dependencies]
+native-tls = "0.2"
+
+[[bin]]
+name = "rurl"
+path = "src/main.rs"
