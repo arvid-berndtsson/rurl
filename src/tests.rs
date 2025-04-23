@@ -25,7 +25,7 @@ impl MockServer {
         stream.read(&mut buffer).unwrap();
 
         let request = String::from_utf8_lossy(&buffer);
-        
+
         let (content_type, body) = if request.contains("POST") {
             ("application/json", "{\"status\":\"success\"}")
         } else if request.contains("Authorization: Bearer token") {
@@ -35,7 +35,7 @@ impl MockServer {
         } else {
             ("text/plain", "Hello, World!")
         };
-        
+
         // Add proper Content-Length and other headers for HTTP/1.1
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -97,7 +97,7 @@ fn test_verbose_output() {
         .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(output.status.success());
     assert!(stdout.contains("Hello, World!"));
     assert!(stdout.contains("Connecting to"));
@@ -128,7 +128,7 @@ fn test_save_to_file() {
         .unwrap();
 
     assert!(output.status.success());
-    assert!(output.stdout.len() > 0);  // Should see "Response body saved to..." message
+    assert!(output.stdout.len() > 0); // Should see "Response body saved to..." message
 
     let file_content = std::fs::read_to_string(output_file).unwrap();
     assert!(file_content.contains("Hello, World!"));
@@ -258,7 +258,7 @@ fn test_connection_timeout() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    
+
     // Should contain connection error or timeout
     assert!(
         stderr.contains("Connection") || stderr.contains("timeout") || stderr.contains("timed out"),
@@ -289,7 +289,7 @@ fn test_tls_connection_attempt() {
         Ok(Some(status)) => {
             // If it completed, check if it succeeded
             let output = child.wait_with_output().unwrap();
-            
+
             if status.success() {
                 // TLS worked - check output
                 let stdout = String::from_utf8_lossy(&output.stdout);

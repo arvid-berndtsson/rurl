@@ -323,10 +323,10 @@ fn main() {
     // Display help if requested
     if args.help {
         println!("rurl - A minimal HTTP client");
-        println!("");
+        println!();
         println!("Usage:");
         println!("    rurl [OPTIONS] <URL>");
-        println!("");
+        println!();
         println!("Options:");
         println!("    -o, --output <FILE>     Save the response body to a file");
         println!("    -m, --method <METHOD>   HTTP method to use (default: GET)");
@@ -334,7 +334,7 @@ fn main() {
         println!("    -d, --data <DATA>       Add data to the request body");
         println!("    -v, --verbose           Enable verbose output");
         println!("    -h, --help              Display this help message");
-        println!("");
+        println!();
         println!("Examples:");
         println!("    rurl https://example.com");
         println!("    rurl -m POST -H \"Content-Type: application/json\" -d '{{\"key\":\"value\"}}' https://api.example.com");
@@ -495,7 +495,7 @@ fn main() {
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
                     // On macOS, non-blocking read can return EAGAIN (Resource temporarily unavailable)
-                    if response.len() > 0 {
+                    if !response.is_empty() {
                         // We have some data already, check if we might be done
                         attempts += 1;
                         if attempts >= 5 {
@@ -620,7 +620,7 @@ fn main() {
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
                     // On macOS, non-blocking read can return EAGAIN (Resource temporarily unavailable)
-                    if response.len() > 0 {
+                    if !response.is_empty() {
                         // We have some data already, check if we might be done
                         attempts += 1;
                         if attempts >= 5 {
@@ -687,7 +687,7 @@ fn process_response(response: &[u8], args: &Args) {
     };
 
     // Check status code
-    let status = match parse_status_line(&response) {
+    let status = match parse_status_line(response) {
         Ok(status) => status,
         Err(err) => {
             eprintln!("Error parsing status: {}", err);
@@ -764,8 +764,7 @@ fn process_response(response: &[u8], args: &Args) {
         }
     } else {
         // Print to stdout
-        match String::from_utf8_lossy(&body) {
-            body_str => println!("{}", body_str),
-        }
+        let body_str = String::from_utf8_lossy(&body);
+        println!("{}", body_str);
     }
 }
