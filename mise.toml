@@ -1,6 +1,31 @@
 [tools]
 "rust" = { version = "1.86.0", components = "rust-src,llvm-tools" }
 
+[hooks]
+postinstall = ["mise generate git-pre-commit --write --task=pre-commit"]
+
+# ///////////////
+# Pre-commit
+# ///////////////
+
+[tasks.pre-commit]
+depends = ["lint:clippy", "lint:fmt"]
+description = "Run Linting and Formatting"
+hide = true
+
+# ///////////////
+# Linting
+# ///////////////
+
+[tasks.lint]
+depends = ["lint:clippy", "lint:fmt"]
+description = "Run Linting and Formatting"
+hide = true
+
+# ///////////////
+# Build
+# ///////////////
+
 [tasks.build]
 description = "Build the project"
 run = "cargo build"
@@ -8,3 +33,16 @@ run = "cargo build"
 [tasks.test]
 description = "Run the tests"
 run = "cargo test"
+
+[tasks.format]
+description = "Format the code"
+run = "cargo fmt"
+
+[tasks."lint:fmt"]
+description = "Check formatting"
+run = "cargo fmt -- --check"
+
+[tasks."lint:clippy"]
+description = "Run the clippy linter"
+run = "cargo clippy -- -D warnings"
+
