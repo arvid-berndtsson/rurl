@@ -5,11 +5,10 @@ use native_tls::TlsConnector;
 use std::{
     env,
     fs::File,
-    io::{Read, Write, ErrorKind},
+    io::{ErrorKind, Read, Write},
     net::{TcpStream, ToSocketAddrs},
-    process,
+    process, thread,
     time::Duration,
-    thread,
 };
 
 struct Args {
@@ -24,9 +23,9 @@ struct Args {
 
 impl Args {
     /// Parse command line arguments.
-    /// 
+    ///
     /// This function parses command line arguments and returns an `Args` struct.
-    /// 
+    ///
     /// # Returns
     ///
     /// * `Result<Self, &'static str>` - An `Args` struct if successful, or an error message if unsuccessful.
@@ -81,15 +80,15 @@ impl Args {
 }
 
 /// Parse a URL into its components.
-/// 
+///
 /// This function takes a URL string and parses it into its components: host, port, path, and protocol.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `url` - A string slice representing the URL to parse.
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `Result<(String, u16, String, bool), &'static str>` - A tuple containing the host, port, path, and protocol if successful, or an error message if unsuccessful.
 fn parse_url(url: &str) -> Result<(String, u16, String, bool), &'static str> {
     let (protocol, rest) = if url.starts_with("https://") {
@@ -106,24 +105,24 @@ fn parse_url(url: &str) -> Result<(String, u16, String, bool), &'static str> {
     } else {
         (host, if protocol { 443 } else { 80 })
     };
-    
+
     if host.is_empty() {
         return Err("Invalid host");
     }
-    
+
     Ok((host.to_string(), port, format!("/{}", path), protocol))
 }
 
 /// Build an HTTP request from the given arguments.
-/// 
+///
 /// This function takes an `Args` struct and builds an HTTP request string.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `args` - A reference to an `Args` struct containing the request parameters.
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `Result<Vec<u8>, &'static str>` - A vector of bytes representing the HTTP request if successful, or an error message if unsuccessful.
 fn build_http_request(args: &Args) -> Result<Vec<u8>, &'static str> {
     let (host, _port, path, _) = parse_url(&args.url)?;
@@ -166,19 +165,17 @@ fn build_http_request(args: &Args) -> Result<Vec<u8>, &'static str> {
 /// * `Option<usize>` - The Content-Length value if found, otherwise None.
 fn get_content_length(response: &[u8]) -> Option<usize> {
     // Convert to string for easier parsing
-    let headers = std::str::from_utf8(&response[..std::cmp::min(response.len(), 2048)])
-        .ok()?;
-    
+    let headers = std::str::from_utf8(&response[..std::cmp::min(response.len(), 2048)]).ok()?;
+
     for line in headers.lines() {
         let line = line.trim().to_lowercase();
         if line.starts_with("content-length:") {
             // Extract the value part
-            let value = line.split(':').nth(1)?
-                .trim().parse::<usize>().ok()?;
+            let value = line.split(':').nth(1)?.trim().parse::<usize>().ok()?;
             return Some(value);
         }
     }
-    
+
     None
 }
 
@@ -201,20 +198,20 @@ fn is_chunked_transfer(response: &[u8]) -> bool {
             }
         }
     }
-    
+
     false
 }
 
 /// Parse the status line of an HTTP response.
-/// 
+///
 /// This function takes a slice of bytes representing an HTTP response and parses the status line.
-/// 
+///
 /// # Arguments
 ///
 /// * `response` - A slice of bytes representing an HTTP response.
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `Result<u16, &'static str>` - The status code of the response if successful, or an error message if unsuccessful.
 fn parse_status_line(response: &[u8]) -> Result<u16, &'static str> {
     let status_line = match response.split(|&b| b == b'\r').next() {
@@ -237,23 +234,77 @@ fn parse_status_line(response: &[u8]) -> Result<u16, &'static str> {
     Ok(status_code)
 }
 
+/// Decode a chunked transfer encoded response body
+///
+/// # Arguments
+///
+/// * `body` - A slice of bytes containing the chunked response body
+///
+/// # Returns
+///
+/// * `Vec<u8>` - The decoded response body
+fn decode_chunked_transfer(body: &[u8]) -> Vec<u8> {
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    while i < body.len() {
+        // Find the end of the chunk size line
+        let chunk_size_end = match &body[i..].windows(2).position(|w| w == b"\r\n") {
+            Some(pos) => i + pos,
+            None => break, // Malformed chunked encoding
+        };
+
+        if chunk_size_end == i {
+            break; // No more chunks
+        }
+
+        // Parse the chunk size from hex
+        let chunk_size_line = std::str::from_utf8(&body[i..chunk_size_end]).unwrap_or("");
+        let chunk_size = match usize::from_str_radix(chunk_size_line.trim(), 16) {
+            Ok(size) => size,
+            Err(_) => break, // Invalid hex
+        };
+
+        // Check if this is the last chunk (zero size)
+        if chunk_size == 0 {
+            break;
+        }
+
+        // Skip the CRLF after the chunk size
+        let chunk_start = chunk_size_end + 2;
+
+        // Ensure we don't go beyond the buffer
+        if chunk_start + chunk_size > body.len() {
+            break;
+        }
+
+        // Append the chunk data to the result
+        result.extend_from_slice(&body[chunk_start..chunk_start + chunk_size]);
+
+        // Move index to the next chunk, skipping the CRLF after the chunk data
+        i = chunk_start + chunk_size + 2;
+    }
+
+    result
+}
+
 /// A simple HTTP client that can send requests and receive responses.
-/// 
+///
 /// This program supports:
 /// - HTTP and HTTPS requests
 /// - Custom headers
 /// - Request body data
 /// - Various HTTP methods (GET, POST, etc.)
-/// 
+///
 /// Usage:
 ///     rurl [OPTIONS] <URL>
-/// 
+///
 /// Options:
 ///     -o, --output <FILE>     Save the response body to a file
 ///     -m, --method <METHOD>   HTTP method to use (default: GET)
 ///     -H, --header <HEADER>   Add a header to the request
 ///     -d, --data <DATA>       Add data to the request body
-/// 
+///
 /// Examples:
 ///     rurl https://example.com
 ///     rurl -m POST -H "Content-Type: application/json" -d '{"key":"value"}' https://api.example.com
@@ -268,7 +319,7 @@ fn main() {
             process::exit(1);
         }
     };
-    
+
     // Display help if requested
     if args.help {
         println!("rurl - A minimal HTTP client");
@@ -317,24 +368,25 @@ fn main() {
         }
     };
 
-    let mut stream = match TcpStream::connect_timeout(&addrs.collect::<Vec<_>>()[0], Duration::from_secs(10)) {
-        Ok(stream) => {
-            // Set read/write timeouts
-            if let Err(err) = stream.set_read_timeout(Some(Duration::from_secs(30))) {
-                eprintln!("Failed to set read timeout: {}", err);
+    let mut stream =
+        match TcpStream::connect_timeout(&addrs.collect::<Vec<_>>()[0], Duration::from_secs(10)) {
+            Ok(stream) => {
+                // Set read/write timeouts
+                if let Err(err) = stream.set_read_timeout(Some(Duration::from_secs(30))) {
+                    eprintln!("Failed to set read timeout: {}", err);
+                    process::exit(1);
+                }
+                if let Err(err) = stream.set_write_timeout(Some(Duration::from_secs(10))) {
+                    eprintln!("Failed to set write timeout: {}", err);
+                    process::exit(1);
+                }
+                stream
+            }
+            Err(err) => {
+                eprintln!("Connection error: {} ({}:{})", err, host, port);
                 process::exit(1);
             }
-            if let Err(err) = stream.set_write_timeout(Some(Duration::from_secs(10))) {
-                eprintln!("Failed to set write timeout: {}", err);
-                process::exit(1);
-            }
-            stream
-        },
-        Err(err) => {
-            eprintln!("Connection error: {} ({}:{})", err, host, port);
-            process::exit(1);
-        }
-    };
+        };
 
     // Handle TLS if needed
     if is_https {
@@ -342,7 +394,8 @@ fn main() {
             .danger_accept_invalid_certs(false)
             .danger_accept_invalid_hostnames(false)
             .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
-            .build() {
+            .build()
+        {
             Ok(connector) => connector,
             Err(err) => {
                 eprintln!("TLS error: {}", err);
@@ -353,7 +406,7 @@ fn main() {
         if args.verbose {
             println!("Connecting to {} (HTTPS)...", host);
         }
-        
+
         let mut tls_stream = match connector.connect(&host, stream) {
             Ok(stream) => stream,
             Err(err) => {
@@ -366,7 +419,7 @@ fn main() {
             println!("Sending request...");
             println!("Waiting for response...");
         }
-        
+
         // Use the TLS stream for communication
         if let Err(err) = tls_stream.write_all(&request_bytes) {
             eprintln!("Write error: {}", err);
@@ -395,25 +448,27 @@ fn main() {
                     thread::sleep(Duration::from_millis(100));
                     attempts += 1;
                     continue;
-                },
+                }
                 Ok(n) => {
                     attempts = 0; // Reset attempts counter on successful read
                     total_read += n;
                     response.extend_from_slice(&buffer[..n]);
-                    
+
                     // Try to find the end of headers to parse Content-Length
-                    if let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") {
+                    if let Some(header_end) =
+                        response.windows(4).position(|window| window == b"\r\n\r\n")
+                    {
                         let content_length = get_content_length(&response[..header_end + 4]);
-                        
+
                         // If Content-Length is present, use it to determine when to stop
                         if let Some(length) = content_length {
                             if args.verbose {
                                 println!("Response Content-Length: {} bytes", length);
                             }
-                            
+
                             // Calculate the total expected size
                             let expected_size = header_end + 4 + length;
-                            
+
                             // If we've read at least that much, we're done
                             if response.len() >= expected_size {
                                 if args.verbose {
@@ -421,8 +476,7 @@ fn main() {
                                 }
                                 break;
                             }
-                        } 
-                        else if is_chunked_transfer(&response[..header_end + 4]) {
+                        } else if is_chunked_transfer(&response[..header_end + 4]) {
                             // For chunked responses, look for the ending pattern 0\r\n\r\n
                             if response.windows(5).any(|window| window == b"0\r\n\r\n") {
                                 if args.verbose {
@@ -433,12 +487,12 @@ fn main() {
                         }
                         // If no content-length and not chunked, rely on connection close
                     }
-                    
+
                     if total_read > MAX_SIZE {
                         eprintln!("Response too large, truncating at {} bytes", MAX_SIZE);
                         break;
                     }
-                },
+                }
                 Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
                     // On macOS, non-blocking read can return EAGAIN (Resource temporarily unavailable)
                     if response.len() > 0 {
@@ -446,7 +500,10 @@ fn main() {
                         attempts += 1;
                         if attempts >= 5 {
                             if args.verbose {
-                                println!("No more data after {} attempts, considering response complete", attempts);
+                                println!(
+                                    "No more data after {} attempts, considering response complete",
+                                    attempts
+                                );
                             }
                             break;
                         }
@@ -454,7 +511,7 @@ fn main() {
                     // Just retry after a short sleep
                     thread::sleep(Duration::from_millis(100));
                     continue;
-                },
+                }
                 Err(err) => {
                     eprintln!("Read error: {}", err);
                     if !response.is_empty() {
@@ -483,7 +540,7 @@ fn main() {
         if args.verbose {
             println!("Connecting to {} (HTTP)...", host);
         }
-        
+
         if let Err(err) = stream.write_all(&request_bytes) {
             eprintln!("Write error: {}", err);
             process::exit(1);
@@ -493,7 +550,7 @@ fn main() {
             println!("Sending request...");
             println!("Waiting for response...");
         }
-        
+
         // Read response with a maximum size to prevent excessive memory usage
         let mut response = Vec::with_capacity(1024 * 1024); // Start with 1MB capacity
         let mut buffer = [0u8; 8192]; // 8KB buffer for faster reading
@@ -516,25 +573,27 @@ fn main() {
                     thread::sleep(Duration::from_millis(100));
                     attempts += 1;
                     continue;
-                },
+                }
                 Ok(n) => {
                     attempts = 0; // Reset attempts counter on successful read
                     total_read += n;
                     response.extend_from_slice(&buffer[..n]);
-                    
+
                     // Try to find the end of headers to parse Content-Length
-                    if let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") {
+                    if let Some(header_end) =
+                        response.windows(4).position(|window| window == b"\r\n\r\n")
+                    {
                         let content_length = get_content_length(&response[..header_end + 4]);
-                        
+
                         // If Content-Length is present, use it to determine when to stop
                         if let Some(length) = content_length {
                             if args.verbose {
                                 println!("Response Content-Length: {} bytes", length);
                             }
-                            
+
                             // Calculate the total expected size
                             let expected_size = header_end + 4 + length;
-                            
+
                             // If we've read at least that much, we're done
                             if response.len() >= expected_size {
                                 if args.verbose {
@@ -542,8 +601,7 @@ fn main() {
                                 }
                                 break;
                             }
-                        } 
-                        else if is_chunked_transfer(&response[..header_end + 4]) {
+                        } else if is_chunked_transfer(&response[..header_end + 4]) {
                             // For chunked responses, look for the ending pattern 0\r\n\r\n
                             if response.windows(5).any(|window| window == b"0\r\n\r\n") {
                                 if args.verbose {
@@ -554,12 +612,12 @@ fn main() {
                         }
                         // If no content-length and not chunked, rely on connection close
                     }
-                    
+
                     if total_read > MAX_SIZE {
                         eprintln!("Response too large, truncating at {} bytes", MAX_SIZE);
                         break;
                     }
-                },
+                }
                 Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
                     // On macOS, non-blocking read can return EAGAIN (Resource temporarily unavailable)
                     if response.len() > 0 {
@@ -567,7 +625,10 @@ fn main() {
                         attempts += 1;
                         if attempts >= 5 {
                             if args.verbose {
-                                println!("No more data after {} attempts, considering response complete", attempts);
+                                println!(
+                                    "No more data after {} attempts, considering response complete",
+                                    attempts
+                                );
                             }
                             break;
                         }
@@ -575,7 +636,7 @@ fn main() {
                     // Just retry after a short sleep
                     thread::sleep(Duration::from_millis(100));
                     continue;
-                },
+                }
                 Err(err) => {
                     eprintln!("Read error: {}", err);
                     if !response.is_empty() {
@@ -597,23 +658,23 @@ fn main() {
         if args.verbose {
             println!("Received {} bytes", response.len());
         }
-        
+
         // Process response
         process_response(&response, &args);
     }
 }
 
 /// Process an HTTP response.
-/// 
+///
 /// This function takes a slice of bytes representing an HTTP response and processes it.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `response` - A slice of bytes representing an HTTP response.
 /// * `args` - A reference to an `Args` struct containing the request parameters.
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `()` - This function does not return a value.
 fn process_response(response: &[u8], args: &Args) {
     // Find the end of headers
@@ -643,6 +704,7 @@ fn process_response(response: &[u8], args: &Args) {
             // Print some important headers
             let mut content_type = None;
             let mut content_length = None;
+            let mut transfer_encoding = None;
 
             for line in headers.lines().skip(1) {
                 let lower_line = line.to_lowercase();
@@ -650,6 +712,8 @@ fn process_response(response: &[u8], args: &Args) {
                     content_type = Some(line);
                 } else if lower_line.starts_with("content-length:") {
                     content_length = Some(line);
+                } else if lower_line.starts_with("transfer-encoding:") {
+                    transfer_encoding = Some(line);
                 }
             }
 
@@ -658,6 +722,9 @@ fn process_response(response: &[u8], args: &Args) {
             }
             if let Some(cl) = content_length {
                 println!("{}", cl);
+            }
+            if let Some(te) = transfer_encoding {
+                println!("{}", te);
             }
             println!();
         }
@@ -672,12 +739,19 @@ fn process_response(response: &[u8], args: &Args) {
         process::exit(1);
     }
 
+    // Handle chunked transfer encoding
+    let body = if is_chunked_transfer(&response[..header_end]) {
+        decode_chunked_transfer(&response[header_end..])
+    } else {
+        response[header_end..].to_vec()
+    };
+
     // Handle response body
     if let Some(output_path) = &args.output {
         // Write to file
         match File::create(output_path) {
             Ok(mut file) => {
-                if let Err(err) = file.write_all(&response[header_end..]) {
+                if let Err(err) = file.write_all(&body) {
                     eprintln!("Write error: {}", err);
                     process::exit(1);
                 }
@@ -690,8 +764,8 @@ fn process_response(response: &[u8], args: &Args) {
         }
     } else {
         // Print to stdout
-        match String::from_utf8_lossy(&response[header_end..]) {
-            body => println!("{}", body),
+        match String::from_utf8_lossy(&body) {
+            body_str => println!("{}", body_str),
         }
     }
 }
