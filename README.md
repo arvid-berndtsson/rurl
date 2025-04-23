@@ -2,6 +2,8 @@
 
 A minimal HTTP client with no dependencies, similar to curl but written in Rust. It is designed to be simple, efficient, and easy to use for making HTTP requests from the command line.
 
+> **Note:** The package is published as `rust-curl` on crates.io, but the command you run is still `rurl`
+
 ## Features
 
 - HTTP and HTTPS support with proper TLS handling
