@@ -19,7 +19,7 @@ A minimal HTTP client with no dependencies, similar to curl but written in Rust.
 ### From crates.io
 
 ```bash
-cargo install rurl
+cargo install rust-curl
 ```
 
 ### From source
