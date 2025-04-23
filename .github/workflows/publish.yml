@@ -1,0 +1,23 @@
+name: Publish to crates.io
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Build in release mode
+      run: cargo build --release
+      
+    - name: Run tests in release mode
+      run: cargo test --release
+    
+    - name: Login to crates.io
+      run: cargo login ${{ secrets.CRATES_IO_TOKEN }}
+    
+    - name: Publish to crates.io
+      run: cargo publish 
