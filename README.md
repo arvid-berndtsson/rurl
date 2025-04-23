@@ -27,8 +27,7 @@ cargo install rurl
 ```bash
 git clone https://github.com/arvid-berndtsson/rurl.git
 cd rurl
-cargo build --release
-cargo install --path .
+cargo build --release && cargo install --path .
 ```
 
 ## Usage
