@@ -1,5 +1,7 @@
 [tools]
 "rust" = { version = "1.86.0", components = "rust-src,llvm-tools" }
+node = "23"
+pnpm = "10"
 
 [hooks]
 postinstall = ["mise generate git-pre-commit --write --task=pre-commit"]
@@ -12,6 +14,19 @@ postinstall = ["mise generate git-pre-commit --write --task=pre-commit"]
 depends = ["lint:clippy", "lint:fmt"]
 description = "Run Linting and Formatting"
 hide = true
+
+# ///////////////
+# Install
+# ///////////////
+
+[tasks."install:pnpm"]
+
+description = "Install pnpm packages"
+run = "pnpm install"
+
+sources = ['package.json', 'pnpm-lock.yaml', 'mise.toml']
+outputs = ['node_modules/.pnpm/lock.yaml']
+
 
 # ///////////////
 # Linting
