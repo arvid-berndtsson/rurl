@@ -1,6 +1,6 @@
 # rurl
 
-A minimal HTTP client with no dependencies, similar to curl but simpler and more lightweight.
+A minimal HTTP client with no dependencies, similar to curl but written in Rust. It is designed to be simple, efficient, and easy to use for making HTTP requests from the command line.
 
 ## Features
 
@@ -73,4 +73,12 @@ rurl -o response.html https://arvid.tech
 
 ## License
 
-MIT 
+[MIT](LICENSE)
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request for any bugs, features, or improvements.
+
+## Acknowledgments
+
+This project is inspired by the simplicity and power of `curl`, but aims to be written in a more idiomatic Rust style with a focus on minimalism and ease of use.
