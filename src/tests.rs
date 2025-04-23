@@ -64,6 +64,105 @@ impl MockServer {
     }
 }
 
+// HTTP/2 Mock Server
+struct MockHttp2Server {
+    listener: TcpListener,
+}
+
+impl MockHttp2Server {
+    fn new() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        Self { listener }
+    }
+
+    fn port(&self) -> u16 {
+        self.listener.local_addr().unwrap().port()
+    }
+
+    fn handle_connection(mut stream: TcpStream) {
+        let mut buffer = [0u8; 1024];
+        stream.read(&mut buffer).unwrap();
+
+        let request = &buffer[..1024];
+
+        // Check if it's an HTTP/2 request by looking for the connection preface
+        let is_http2 = request.starts_with(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+
+        if is_http2 {
+            // HTTP/2 response with a simple settings frame and headers + data frames
+            // This is a very simplified mock of HTTP/2 framing
+
+            // Connection preface
+            let preface = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+            stream.write_all(preface).unwrap();
+
+            // SETTINGS frame (empty settings)
+            let settings_frame = [
+                0x00, 0x00, 0x00, // Length: 0
+                0x04, // Type: SETTINGS
+                0x00, // Flags: none
+                0x00, 0x00, 0x00, 0x00, // Stream ID: 0
+            ];
+            stream.write_all(&settings_frame).unwrap();
+
+            // HEADERS frame
+            let headers_content = b"HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n";
+            let headers_length = headers_content.len() as u32;
+            let headers_frame = [
+                ((headers_length >> 16) & 0xFF) as u8, // Length (high byte)
+                ((headers_length >> 8) & 0xFF) as u8,  // Length (middle byte)
+                (headers_length & 0xFF) as u8,         // Length (low byte)
+                0x01,                                  // Type: HEADERS
+                0x04,                                  // Flags: END_HEADERS
+                0x00,
+                0x00,
+                0x00,
+                0x01, // Stream ID: 1
+            ];
+            stream.write_all(&headers_frame).unwrap();
+            stream.write_all(headers_content).unwrap();
+
+            // DATA frame with JSON payload
+            let json_body = b"{\"protocol\":\"HTTP/2\",\"message\":\"Hello from HTTP/2\"}";
+            let data_length = json_body.len() as u32;
+            let data_frame = [
+                ((data_length >> 16) & 0xFF) as u8, // Length (high byte)
+                ((data_length >> 8) & 0xFF) as u8,  // Length (middle byte)
+                (data_length & 0xFF) as u8,         // Length (low byte)
+                0x00,                               // Type: DATA
+                0x01,                               // Flags: END_STREAM
+                0x00,
+                0x00,
+                0x00,
+                0x01, // Stream ID: 1
+            ];
+            stream.write_all(&data_frame).unwrap();
+            stream.write_all(json_body).unwrap();
+        } else {
+            // Regular HTTP/1.1 response
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 56\r\n\r\n{\"protocol\":\"HTTP/1.1\",\"message\":\"Hello from HTTP/1.1\"}";
+            stream.write_all(response.as_bytes()).unwrap();
+        }
+
+        stream.flush().unwrap();
+    }
+
+    fn run(&self) {
+        for stream in self.listener.incoming() {
+            match stream {
+                Ok(stream) => {
+                    thread::spawn(move || {
+                        Self::handle_connection(stream);
+                    });
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn test_basic_get_request() {
     let server = MockServer::new();
@@ -351,4 +450,148 @@ fn test_invalid_tls_hostname() {
         "Expected connection error, got: {}",
         stderr
     );
+}
+
+#[test]
+fn test_http2_request() {
+    let server = MockHttp2Server::new();
+    let port = server.port();
+    thread::spawn(move || server.run());
+
+    // Give the server time to start
+    thread::sleep(Duration::from_millis(100));
+
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "--http2",
+            &format!("http://127.0.0.1:{}", port),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    // Check that we got an HTTP/2 response
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("HTTP/2"));
+    assert!(stdout.contains("Hello from HTTP/2"));
+}
+
+#[test]
+fn test_http2_verbose_output() {
+    let server = MockHttp2Server::new();
+    let port = server.port();
+    thread::spawn(move || server.run());
+
+    // Give the server time to start
+    thread::sleep(Duration::from_millis(100));
+
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "--http2",
+            "-v",
+            &format!("http://127.0.0.1:{}", port),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    // Check for HTTP/2 specific verbose output
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("HTTP/2 response received"));
+    assert!(stdout.contains("Frame: type="));
+}
+
+#[test]
+fn test_http2_post_request() {
+    let server = MockHttp2Server::new();
+    let port = server.port();
+    thread::spawn(move || server.run());
+
+    // Give the server time to start
+    thread::sleep(Duration::from_millis(100));
+
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "--http2",
+            "-m",
+            "POST",
+            "-d",
+            "{\"test\":\"data\"}",
+            &format!("http://127.0.0.1:{}", port),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    // Check that we got an HTTP/2 response
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("HTTP/2"));
+}
+
+#[test]
+fn test_http2_with_headers() {
+    let server = MockHttp2Server::new();
+    let port = server.port();
+    thread::spawn(move || server.run());
+
+    // Give the server time to start
+    thread::sleep(Duration::from_millis(100));
+
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "--http2",
+            "-H",
+            "X-Test-Header: test-value",
+            "-H",
+            "User-Agent: rurl/1.0",
+            &format!("http://127.0.0.1:{}", port),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    // Check that we got an HTTP/2 response
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("HTTP/2"));
+}
+
+#[test]
+fn test_fallback_to_http1() {
+    // This test uses a regular HTTP/1.1 server but makes the request with --http2
+    // This simulates a server that doesn't support HTTP/2
+    let server = MockServer::new();
+    let port = server.port();
+    thread::spawn(move || server.run());
+
+    // Give the server time to start
+    thread::sleep(Duration::from_millis(100));
+
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "--http2",
+            &format!("http://127.0.0.1:{}", port),
+        ])
+        .output()
+        .unwrap();
+
+    // The request should still succeed, but with HTTP/1.1
+    assert!(output.status.success());
+
+    // Check that we got an HTTP/1.1 response
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Hello, World!"));
 }
