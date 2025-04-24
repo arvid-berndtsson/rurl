@@ -1,0 +1,70 @@
+name: Rust Crate Release with pnpm
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js (for standard-version)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: true
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run standard-version
+        id: standard_version
+        run: pnpm exec standard-version
+
+      - name: Sync version to Cargo.toml
+        run: |
+          VERSION=$(jq -r .version package.json)
+          echo "Updating Cargo.toml to version $VERSION"
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+
+      - name: Commit version bump and tag
+        run: |
+          git add package.json CHANGELOG.md Cargo.toml
+          git commit -m "chore(release): v$(jq -r .version package.json)"
+          git tag v$(jq -r .version package.json)
+          git push origin main --follow-tags
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.standard_version.outputs.version || 'unknown' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
