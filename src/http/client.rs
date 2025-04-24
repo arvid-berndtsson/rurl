@@ -22,22 +22,21 @@ pub fn setup_tcp_stream(host: &str, port: u16) -> Result<TcpStream, String> {
         return Err(format!("No addresses resolved for {}:{}", host, port));
     }
 
-    let stream =
-        match TcpStream::connect_timeout(&addrs_vec[0], Duration::from_secs(10)) {
-            Ok(stream) => {
-                // Set read/write timeouts
-                if let Err(err) = stream.set_read_timeout(Some(Duration::from_secs(30))) {
-                    return Err(format!("Failed to set read timeout: {}", err));
-                }
-                if let Err(err) = stream.set_write_timeout(Some(Duration::from_secs(10))) {
-                    return Err(format!("Failed to set write timeout: {}", err));
-                }
-                stream
+    let stream = match TcpStream::connect_timeout(&addrs_vec[0], Duration::from_secs(10)) {
+        Ok(stream) => {
+            // Set read/write timeouts
+            if let Err(err) = stream.set_read_timeout(Some(Duration::from_secs(30))) {
+                return Err(format!("Failed to set read timeout: {}", err));
             }
-            Err(err) => {
-                return Err(format!("Connection error: {} ({}:{})", err, host, port));
+            if let Err(err) = stream.set_write_timeout(Some(Duration::from_secs(10))) {
+                return Err(format!("Failed to set write timeout: {}", err));
             }
-        };
+            stream
+        }
+        Err(err) => {
+            return Err(format!("Connection error: {} ({}:{})", err, host, port));
+        }
+    };
 
     Ok(stream)
 }
