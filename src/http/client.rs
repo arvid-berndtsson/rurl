@@ -150,6 +150,47 @@ pub fn read_http_response<T: Read>(stream: &mut T, verbose: bool) -> Result<Vec<
     Ok(response)
 }
 
+/// Get the TLS protocol version from the specified string
+fn get_tls_protocol_version(version: &str) -> Option<native_tls::Protocol> {
+    match version.trim() {
+        "1.0" => Some(native_tls::Protocol::Tlsv10),
+        "1.1" => Some(native_tls::Protocol::Tlsv11),
+        "1.2" => Some(native_tls::Protocol::Tlsv12),
+        // TLS 1.3 is not explicitly supported in native-tls yet, but we can try to leave it to the system
+        "1.3" => None,
+        _ => None,
+    }
+}
+
+/// Get the default minimum TLS protocol version for the current OS
+fn get_default_tls_protocol() -> Option<native_tls::Protocol> {
+    // Different OS versions have different defaults/support for TLS versions
+    // Here we're making conservative choices
+    #[cfg(target_os = "macos")]
+    {
+        // macOS typically has good support for recent TLS versions
+        Some(native_tls::Protocol::Tlsv12)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows support depends a lot on the version, default to 1.2 for security
+        Some(native_tls::Protocol::Tlsv12)
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux typically supports recent versions
+        Some(native_tls::Protocol::Tlsv12)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        // For other platforms, use TLS 1.2 as a safe default
+        Some(native_tls::Protocol::Tlsv12)
+    }
+}
+
 /// Handle HTTPS connections
 pub fn handle_https_connection(
     stream: TcpStream,
@@ -157,10 +198,24 @@ pub fn handle_https_connection(
     request_bytes: &[u8],
     args: &Args,
 ) -> Result<(), String> {
-    let connector = match TlsConnector::builder()
+    // Determine which TLS version to use
+    let tls_version = args
+        .tls_version
+        .as_deref()
+        .and_then(get_tls_protocol_version)
+        .or_else(get_default_tls_protocol);
+
+    let mut builder = TlsConnector::builder();
+
+    // Set minimum protocol version if specified
+    if let Some(version) = tls_version {
+        builder.min_protocol_version(Some(version));
+    }
+
+    // Complete the connector configuration
+    let connector = match builder
         .danger_accept_invalid_certs(false)
         .danger_accept_invalid_hostnames(false)
-        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
         .build()
     {
         Ok(connector) => connector,
@@ -171,6 +226,9 @@ pub fn handle_https_connection(
 
     if args.verbose {
         println!("Connecting to {} (HTTPS)...", host);
+        if let Some(version) = &args.tls_version {
+            println!("Using minimum TLS version: {}", version);
+        }
     }
 
     let mut tls_stream = match connector.connect(host, stream) {

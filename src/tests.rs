@@ -352,3 +352,38 @@ fn test_invalid_tls_hostname() {
         stderr
     );
 }
+
+#[test]
+fn test_tls_version_argument() {
+    // This test uses a real HTTPS server
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "-v",
+            "--tls-version",
+            "1.2",
+            "https://httpbin.org/get",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Using minimum TLS version: 1.2"));
+}
+
+#[test]
+fn test_tls_version_environment() {
+    // This test uses a real HTTPS server
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.args(["run", "--", "-v", "https://httpbin.org/get"]);
+
+    cmd.env("RURL_TLS_VERSION", "1.3");
+
+    let output = cmd.output().unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Using minimum TLS version: 1.3"));
+}
