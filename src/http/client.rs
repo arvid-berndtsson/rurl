@@ -17,8 +17,13 @@ pub fn setup_tcp_stream(host: &str, port: u16) -> Result<TcpStream, String> {
         }
     };
 
+    let addrs_vec: Vec<_> = addrs.collect();
+    if addrs_vec.is_empty() {
+        return Err(format!("No addresses resolved for {}:{}", host, port));
+    }
+
     let stream =
-        match TcpStream::connect_timeout(&addrs.collect::<Vec<_>>()[0], Duration::from_secs(10)) {
+        match TcpStream::connect_timeout(&addrs_vec[0], Duration::from_secs(10)) {
             Ok(stream) => {
                 // Set read/write timeouts
                 if let Err(err) = stream.set_read_timeout(Some(Duration::from_secs(30))) {
