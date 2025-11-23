@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 
 /// Represents command line arguments for the HTTP client
 pub struct Args {
@@ -48,7 +49,9 @@ impl Args {
                     parsed.verbose = true;
                 }
                 "-o" | "--output" => {
-                    parsed.output = Some(args.next().ok_or("Missing output file")?);
+                    let output_path = args.next().ok_or("Missing output file")?;
+                    validate_output_path(&output_path)?;
+                    parsed.output = Some(output_path);
                 }
                 "-m" | "--method" => {
                     parsed.method = args.next().ok_or("Missing HTTP method")?.to_uppercase();
@@ -77,6 +80,59 @@ impl Args {
 
         Ok(parsed)
     }
+}
+
+/// Validate output file path to prevent path traversal attacks
+///
+/// This function checks for potentially dangerous path patterns that could
+/// lead to path traversal vulnerabilities.
+///
+/// # Arguments
+///
+/// * `path` - The file path to validate
+///
+/// # Returns
+///
+/// * `Result<(), &'static str>` - Ok if the path is safe, or an error message if unsafe
+fn validate_output_path(path: &str) -> Result<(), &'static str> {
+    // Check for null bytes which can be used for path traversal
+    if path.contains('\0') {
+        return Err("Invalid output path: contains null bytes");
+    }
+
+    // Parse the path to normalize it
+    let path_obj = Path::new(path);
+    
+    // Check for absolute paths pointing to sensitive system directories
+    if path_obj.is_absolute() {
+        // Use to_string_lossy to handle any encoding, then check
+        let path_str = path_obj.to_string_lossy();
+        let path_lower = path_str.to_lowercase();
+        
+        // Check for common sensitive system directories (case-insensitive for Windows)
+        let sensitive_dirs = [
+            "/etc/", "/sys/", "/proc/", "/dev/", "/root/", "/boot/",
+            "c:\\windows\\", "c:\\program files\\", "c:\\program files (x86)\\",
+            "c:\\windows\\system32\\", "c:\\programdata\\",
+        ];
+        
+        for sensitive_dir in &sensitive_dirs {
+            if path_lower.starts_with(sensitive_dir) {
+                return Err("Invalid output path: cannot write to system directories");
+            }
+        }
+    }
+
+    // Check for parent directory traversal attempts
+    // Use proper component checking to avoid false positives with filenames like "my..file.txt"
+    use std::path::Component;
+    for component in path_obj.components() {
+        if matches!(component, Component::ParentDir) {
+            return Err("Invalid output path: suspicious path traversal pattern");
+        }
+    }
+
+    Ok(())
 }
 
 /// Print usage information
