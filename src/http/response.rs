@@ -152,7 +152,7 @@ pub fn get_location(response: &[u8]) -> Option<String> {
     for line in headers.lines() {
         if line.to_lowercase().starts_with("location:") {
             // Extract the value part (everything after first colon)
-            if let Some(value) = line.splitn(2, ':').nth(1) {
+            if let Some((_, value)) = line.split_once(':') {
                 return Some(value.trim().to_string());
             }
         }

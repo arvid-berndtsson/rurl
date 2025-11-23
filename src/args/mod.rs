@@ -74,8 +74,7 @@ impl Args {
                 "-d" | "--data" => {
                     let data_arg = args.next().ok_or("Missing data")?;
                     // Check if data starts with @ to read from file
-                    if data_arg.starts_with('@') {
-                        let filename = &data_arg[1..];
+                    if let Some(filename) = data_arg.strip_prefix('@') {
                         let file_content = std::fs::read_to_string(filename)
                             .map_err(|_| "Failed to read data file")?;
                         parsed.data = Some(file_content);
