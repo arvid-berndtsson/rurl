@@ -491,3 +491,36 @@ fn test_valid_output_path_allowed() {
         std::fs::remove_file(output_file).unwrap();
     }
 }
+
+#[test]
+fn test_filename_with_double_dots_allowed() {
+    // Test that filenames containing ".." (but not as a path component) are allowed
+    let server = MockServer::new();
+    let port = server.port();
+    thread::spawn(move || server.run());
+
+    thread::sleep(Duration::from_millis(100));
+
+    let output_file = "my..file.txt";
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            &format!("http://127.0.0.1:{}", port),
+            "-o",
+            output_file,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "Filename with '..' should be allowed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    
+    // Cleanup
+    if std::path::Path::new(output_file).exists() {
+        std::fs::remove_file(output_file).unwrap();
+    }
+}

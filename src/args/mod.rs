@@ -107,20 +107,29 @@ fn validate_output_path(path: &str) -> Result<(), &'static str> {
     if path_obj.is_absolute() {
         // Use to_string_lossy to handle any encoding, then check
         let path_str = path_obj.to_string_lossy();
-        // Check for common sensitive system directories
-        let sensitive_dirs = ["/etc/", "/sys/", "/proc/", "/dev/", "/root/", "C:\\Windows\\", "C:\\Program Files\\"];
+        let path_lower = path_str.to_lowercase();
+        
+        // Check for common sensitive system directories (case-insensitive for Windows)
+        let sensitive_dirs = [
+            "/etc/", "/sys/", "/proc/", "/dev/", "/root/", "/boot/",
+            "c:\\windows\\", "c:\\program files\\", "c:\\program files (x86)\\",
+            "c:\\windows\\system32\\", "c:\\programdata\\",
+        ];
+        
         for sensitive_dir in &sensitive_dirs {
-            if path_str.starts_with(sensitive_dir) {
+            if path_lower.starts_with(sensitive_dir) {
                 return Err("Invalid output path: cannot write to system directories");
             }
         }
     }
 
     // Check for parent directory traversal attempts
-    // Be conservative and reject any path with ".." to prevent path traversal
-    let path_str = path_obj.to_string_lossy();
-    if path_str.contains("..") {
-        return Err("Invalid output path: suspicious path traversal pattern");
+    // Use proper component checking to avoid false positives with filenames like "my..file.txt"
+    use std::path::Component;
+    for component in path_obj.components() {
+        if matches!(component, Component::ParentDir) {
+            return Err("Invalid output path: suspicious path traversal pattern");
+        }
     }
 
     Ok(())
