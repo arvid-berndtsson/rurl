@@ -454,7 +454,6 @@ fn test_deprecated_tls_versions_rejected() {
 
     // Since TLS 1.0 returns None, it should use the default TLS 1.2
     // The command might fail due to network issues, but it shouldn't accept 1.0 explicitly
-    let _stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
     
     // Check that TLS 1.0 is not being used

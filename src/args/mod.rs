@@ -105,7 +105,8 @@ fn validate_output_path(path: &str) -> Result<(), &'static str> {
     
     // Check for absolute paths pointing to sensitive system directories
     if path_obj.is_absolute() {
-        let path_str = path_obj.to_str().unwrap_or("");
+        // Use to_string_lossy to handle any encoding, then check
+        let path_str = path_obj.to_string_lossy();
         // Check for common sensitive system directories
         let sensitive_dirs = ["/etc/", "/sys/", "/proc/", "/dev/", "/root/", "C:\\Windows\\", "C:\\Program Files\\"];
         for sensitive_dir in &sensitive_dirs {
@@ -115,31 +116,11 @@ fn validate_output_path(path: &str) -> Result<(), &'static str> {
         }
     }
 
-    // Check each component for path traversal attempts
-    for component in path_obj.components() {
-        let component_str = component.as_os_str().to_string_lossy();
-        // Check for parent directory references in suspicious patterns
-        if component_str == ".." {
-            // Allow .. only if it's in a clearly relative context
-            // This is a conservative approach - we could be more permissive
-            // but for security, we'll be strict
-            continue; // We'll allow .. but check the final path below
-        }
-    }
-
-    // Additional check: ensure the canonicalized path (if parent exists) doesn't escape
-    // the current working directory in an unsafe way
-    if let Some(parent) = path_obj.parent() {
-        if parent.to_str().unwrap_or("").is_empty() {
-            // Parent is empty, this is a file in current directory - safe
-            return Ok(());
-        }
-        // Check if parent has suspicious patterns
-        let parent_str = parent.to_string_lossy();
-        if parent_str.contains("..") {
-            // Be conservative with .. in paths
-            return Err("Invalid output path: suspicious path traversal pattern");
-        }
+    // Check for parent directory traversal attempts
+    // Be conservative and reject any path with ".." to prevent path traversal
+    let path_str = path_obj.to_string_lossy();
+    if path_str.contains("..") {
+        return Err("Invalid output path: suspicious path traversal pattern");
     }
 
     Ok(())
