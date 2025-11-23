@@ -151,9 +151,10 @@ pub fn get_location(response: &[u8]) -> Option<String> {
 
     for line in headers.lines() {
         if line.to_lowercase().starts_with("location:") {
-            // Extract the value part
-            let value = line.split(':').skip(1).collect::<Vec<_>>().join(":");
-            return Some(value.trim().to_string());
+            // Extract the value part (everything after first colon)
+            if let Some(value) = line.splitn(2, ':').nth(1) {
+                return Some(value.trim().to_string());
+            }
         }
     }
 

@@ -556,8 +556,8 @@ fn test_data_from_file() {
     use std::io::Write;
 
     // Create a temporary test file
-    let test_file = "/tmp/rurl_test_data.json";
-    let mut file = File::create(test_file).unwrap();
+    let test_file = std::env::temp_dir().join("rurl_test_data.json");
+    let mut file = File::create(&test_file).unwrap();
     file.write_all(b"{\"test\":\"from_file\"}").unwrap();
 
     let server = MockServer::new();
@@ -571,7 +571,7 @@ fn test_data_from_file() {
             "run",
             "--",
             "-d",
-            &format!("@{}", test_file),
+            &format!("@{}", test_file.display()),
             &format!("http://127.0.0.1:{}", port),
         ])
         .output()
@@ -580,7 +580,7 @@ fn test_data_from_file() {
     assert!(output.status.success());
     
     // Clean up
-    std::fs::remove_file(test_file).unwrap();
+    std::fs::remove_file(&test_file).unwrap();
 }
 
 #[test]
