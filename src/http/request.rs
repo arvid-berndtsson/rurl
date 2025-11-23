@@ -20,6 +20,17 @@ pub fn build(args: &Args) -> Result<Vec<u8>, &'static str> {
         args.method, path, host
     );
 
+    // Add User-Agent header if specified
+    if let Some(user_agent) = &args.user_agent {
+        request.push_str(&format!("User-Agent: {}\r\n", user_agent));
+    }
+
+    // Add Basic Authentication if specified
+    if let Some(user) = &args.user {
+        let encoded = base64_encode(user.as_bytes());
+        request.push_str(&format!("Authorization: Basic {}\r\n", encoded));
+    }
+
     // Add headers
     for header in &args.headers {
         request.push_str(&format!("{}\r\n", header));
@@ -40,4 +51,36 @@ pub fn build(args: &Args) -> Result<Vec<u8>, &'static str> {
     }
 
     Ok(request_bytes)
+}
+
+/// Base64 encode a byte slice
+fn base64_encode(data: &[u8]) -> String {
+    const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    let mut i = 0;
+
+    while i < data.len() {
+        let b1 = data[i];
+        let b2 = if i + 1 < data.len() { data[i + 1] } else { 0 };
+        let b3 = if i + 2 < data.len() { data[i + 2] } else { 0 };
+
+        result.push(BASE64_CHARS[(b1 >> 2) as usize] as char);
+        result.push(BASE64_CHARS[(((b1 & 0x03) << 4) | (b2 >> 4)) as usize] as char);
+        
+        if i + 1 < data.len() {
+            result.push(BASE64_CHARS[(((b2 & 0x0f) << 2) | (b3 >> 6)) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        
+        if i + 2 < data.len() {
+            result.push(BASE64_CHARS[(b3 & 0x3f) as usize] as char);
+        } else {
+            result.push('=');
+        }
+
+        i += 3;
+    }
+
+    result
 }

@@ -202,6 +202,18 @@ pub fn handle_https_connection(
     request_bytes: &[u8],
     args: &Args,
 ) -> Result<(), String> {
+    handle_https_connection_impl(stream, host, request_bytes, args, 0)
+}
+
+fn handle_https_connection_impl(
+    stream: TcpStream,
+    host: &str,
+    request_bytes: &[u8],
+    args: &Args,
+    redirect_count: usize,
+) -> Result<(), String> {
+    const MAX_REDIRECTS: usize = 10;
+
     // Determine which TLS version to use
     let tls_version = args
         .tls_version
@@ -228,7 +240,7 @@ pub fn handle_https_connection(
         }
     };
 
-    if args.verbose {
+    if args.verbose && !args.silent {
         println!("Connecting to {} (HTTPS)...", host);
         if let Some(version) = &args.tls_version {
             println!("Using minimum TLS version: {}", version);
@@ -242,7 +254,7 @@ pub fn handle_https_connection(
         }
     };
 
-    if args.verbose {
+    if args.verbose && !args.silent {
         println!("Sending request...");
         println!("Waiting for response...");
     }
@@ -253,8 +265,43 @@ pub fn handle_https_connection(
     }
 
     // Read response
-    match read_http_response(&mut tls_stream, args.verbose) {
+    match read_http_response(&mut tls_stream, args.verbose && !args.silent) {
         Ok(response_bytes) => {
+            // Check for redirect status codes
+            let status = response::parse_status_line(&response_bytes).unwrap_or(0);
+            
+            if args.follow_redirects && (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                if redirect_count >= MAX_REDIRECTS {
+                    return Err("Too many redirects".to_string());
+                }
+
+                if let Some(location) = response::get_location(&response_bytes) {
+                    if args.verbose && !args.silent {
+                        println!("Following redirect to: {}", location);
+                    }
+
+                    // Parse the new location
+                    use crate::http::url;
+                    let (new_host, new_port, _, new_is_https) = url::parse(&location)?;
+                    
+                    // Build new request
+                    let mut new_args = args.clone();
+                    new_args.url = location;
+                    let new_request_bytes = crate::http::request::build(&new_args)
+                        .map_err(|e| e.to_string())?;
+
+                    // Setup new TCP stream
+                    let new_stream = setup_tcp_stream(&new_host, new_port)?;
+
+                    // Follow redirect
+                    if new_is_https {
+                        return handle_https_connection_impl(new_stream, &new_host, &new_request_bytes, &new_args, redirect_count + 1);
+                    } else {
+                        return handle_http_connection_impl(new_stream, &new_host, &new_request_bytes, &new_args, redirect_count + 1);
+                    }
+                }
+            }
+
             // Process response
             response::process(&response_bytes, args);
             Ok(())
@@ -265,12 +312,24 @@ pub fn handle_https_connection(
 
 /// Handle HTTP connections
 pub fn handle_http_connection(
-    mut stream: TcpStream,
+    stream: TcpStream,
     host: &str,
     request_bytes: &[u8],
     args: &Args,
 ) -> Result<(), String> {
-    if args.verbose {
+    handle_http_connection_impl(stream, host, request_bytes, args, 0)
+}
+
+fn handle_http_connection_impl(
+    mut stream: TcpStream,
+    host: &str,
+    request_bytes: &[u8],
+    args: &Args,
+    redirect_count: usize,
+) -> Result<(), String> {
+    const MAX_REDIRECTS: usize = 10;
+
+    if args.verbose && !args.silent {
         println!("Connecting to {} (HTTP)...", host);
     }
 
@@ -278,14 +337,49 @@ pub fn handle_http_connection(
         return Err(format!("Write error: {}", err));
     }
 
-    if args.verbose {
+    if args.verbose && !args.silent {
         println!("Sending request...");
         println!("Waiting for response...");
     }
 
     // Read response
-    match read_http_response(&mut stream, args.verbose) {
+    match read_http_response(&mut stream, args.verbose && !args.silent) {
         Ok(response_bytes) => {
+            // Check for redirect status codes
+            let status = response::parse_status_line(&response_bytes).unwrap_or(0);
+            
+            if args.follow_redirects && (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                if redirect_count >= MAX_REDIRECTS {
+                    return Err("Too many redirects".to_string());
+                }
+
+                if let Some(location) = response::get_location(&response_bytes) {
+                    if args.verbose && !args.silent {
+                        println!("Following redirect to: {}", location);
+                    }
+
+                    // Parse the new location
+                    use crate::http::url;
+                    let (new_host, new_port, _, new_is_https) = url::parse(&location)?;
+                    
+                    // Build new request
+                    let mut new_args = args.clone();
+                    new_args.url = location;
+                    let new_request_bytes = crate::http::request::build(&new_args)
+                        .map_err(|e| e.to_string())?;
+
+                    // Setup new TCP stream
+                    let new_stream = setup_tcp_stream(&new_host, new_port)?;
+
+                    // Follow redirect
+                    if new_is_https {
+                        return handle_https_connection_impl(new_stream, &new_host, &new_request_bytes, &new_args, redirect_count + 1);
+                    } else {
+                        return handle_http_connection_impl(new_stream, &new_host, &new_request_bytes, &new_args, redirect_count + 1);
+                    }
+                }
+            }
+
             // Process response
             response::process(&response_bytes, args);
             Ok(())

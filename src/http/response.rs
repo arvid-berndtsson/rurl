@@ -136,6 +136,30 @@ pub fn decode_chunked_transfer(body: &[u8]) -> Vec<u8> {
     result
 }
 
+/// Extract the Location header from an HTTP response.
+///
+/// # Arguments
+///
+/// * `response` - A slice of bytes representing an HTTP response.
+///
+/// # Returns
+///
+/// * `Option<String>` - The Location header value if found, otherwise None.
+pub fn get_location(response: &[u8]) -> Option<String> {
+    // Convert to string for easier parsing
+    let headers = std::str::from_utf8(&response[..std::cmp::min(response.len(), 2048)]).ok()?;
+
+    for line in headers.lines() {
+        if line.to_lowercase().starts_with("location:") {
+            // Extract the value part
+            let value = line.split(':').skip(1).collect::<Vec<_>>().join(":");
+            return Some(value.trim().to_string());
+        }
+    }
+
+    None
+}
+
 /// Process an HTTP response.
 ///
 /// This function takes a slice of bytes representing an HTTP response and processes it.
@@ -153,7 +177,9 @@ pub fn process(response: &[u8], args: &Args) {
     let header_end = match response.windows(4).position(|window| window == b"\r\n\r\n") {
         Some(pos) => pos + 4,
         None => {
-            eprintln!("Invalid HTTP response");
+            if !args.silent {
+                eprintln!("Invalid HTTP response");
+            }
             std::process::exit(1);
         }
     };
@@ -162,13 +188,15 @@ pub fn process(response: &[u8], args: &Args) {
     let status = match parse_status_line(response) {
         Ok(status) => status,
         Err(err) => {
-            eprintln!("Error parsing status: {}", err);
+            if !args.silent {
+                eprintln!("Error parsing status: {}", err);
+            }
             std::process::exit(1);
         }
     };
 
     // Print status line and essential headers
-    if args.verbose {
+    if args.verbose && !args.silent {
         if let Ok(headers) = std::str::from_utf8(&response[..header_end]) {
             let status_line = headers.lines().next().unwrap_or("Unknown status");
             println!("Status: {}", status_line);
@@ -204,9 +232,15 @@ pub fn process(response: &[u8], args: &Args) {
 
     // Check for error status
     if status >= 400 {
-        eprintln!("HTTP Error: {}", status);
-        if let Ok(body) = std::str::from_utf8(&response[header_end..]) {
-            eprintln!("Response body: {}", body);
+        if args.fail_fast {
+            // Fail silently with no output
+            std::process::exit(22); // Exit code 22 like curl does
+        }
+        if !args.silent {
+            eprintln!("HTTP Error: {}", status);
+            if let Ok(body) = std::str::from_utf8(&response[header_end..]) {
+                eprintln!("Response body: {}", body);
+            }
         }
         std::process::exit(1);
     }
@@ -218,24 +252,53 @@ pub fn process(response: &[u8], args: &Args) {
         response[header_end..].to_vec()
     };
 
+    // If --head flag is used, only show headers
+    if args.head_only {
+        if let Ok(headers) = std::str::from_utf8(&response[..header_end]) {
+            print!("{}", headers);
+        }
+        return;
+    }
+
     // Handle response body
     if let Some(output_path) = &args.output {
         // Write to file
         match File::create(output_path) {
             Ok(mut file) => {
+                // If include_headers is set, write headers first
+                if args.include_headers {
+                    if let Err(err) = file.write_all(&response[..header_end]) {
+                        if !args.silent {
+                            eprintln!("Write error: {}", err);
+                        }
+                        std::process::exit(1);
+                    }
+                }
                 if let Err(err) = file.write_all(&body) {
-                    eprintln!("Write error: {}", err);
+                    if !args.silent {
+                        eprintln!("Write error: {}", err);
+                    }
                     std::process::exit(1);
                 }
-                println!("Response body saved to '{}'", output_path);
+                if !args.silent {
+                    println!("Response body saved to '{}'", output_path);
+                }
             }
             Err(err) => {
-                eprintln!("File error: {}", err);
+                if !args.silent {
+                    eprintln!("File error: {}", err);
+                }
                 std::process::exit(1);
             }
         }
     } else {
         // Print to stdout
+        // If include_headers is set, print headers first
+        if args.include_headers {
+            if let Ok(headers) = std::str::from_utf8(&response[..header_end]) {
+                print!("{}", headers);
+            }
+        }
         let body_str = String::from_utf8_lossy(&body);
         println!("{}", body_str);
     }
