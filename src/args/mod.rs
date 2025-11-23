@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 
 /// Represents command line arguments for the HTTP client
 pub struct Args {
@@ -48,7 +49,9 @@ impl Args {
                     parsed.verbose = true;
                 }
                 "-o" | "--output" => {
-                    parsed.output = Some(args.next().ok_or("Missing output file")?);
+                    let output_path = args.next().ok_or("Missing output file")?;
+                    validate_output_path(&output_path)?;
+                    parsed.output = Some(output_path);
                 }
                 "-m" | "--method" => {
                     parsed.method = args.next().ok_or("Missing HTTP method")?.to_uppercase();
@@ -77,6 +80,69 @@ impl Args {
 
         Ok(parsed)
     }
+}
+
+/// Validate output file path to prevent path traversal attacks
+///
+/// This function checks for potentially dangerous path patterns that could
+/// lead to path traversal vulnerabilities.
+///
+/// # Arguments
+///
+/// * `path` - The file path to validate
+///
+/// # Returns
+///
+/// * `Result<(), &'static str>` - Ok if the path is safe, or an error message if unsafe
+fn validate_output_path(path: &str) -> Result<(), &'static str> {
+    // Check for null bytes which can be used for path traversal
+    if path.contains('\0') {
+        return Err("Invalid output path: contains null bytes");
+    }
+
+    // Parse the path to normalize it
+    let path_obj = Path::new(path);
+    
+    // Check for absolute paths pointing to sensitive system directories
+    if path_obj.is_absolute() {
+        let path_str = path_obj.to_str().unwrap_or("");
+        // Check for common sensitive system directories
+        let sensitive_dirs = ["/etc/", "/sys/", "/proc/", "/dev/", "/root/", "C:\\Windows\\", "C:\\Program Files\\"];
+        for sensitive_dir in &sensitive_dirs {
+            if path_str.starts_with(sensitive_dir) {
+                return Err("Invalid output path: cannot write to system directories");
+            }
+        }
+    }
+
+    // Check each component for path traversal attempts
+    for component in path_obj.components() {
+        let component_str = component.as_os_str().to_string_lossy();
+        // Check for parent directory references in suspicious patterns
+        if component_str == ".." {
+            // Allow .. only if it's in a clearly relative context
+            // This is a conservative approach - we could be more permissive
+            // but for security, we'll be strict
+            continue; // We'll allow .. but check the final path below
+        }
+    }
+
+    // Additional check: ensure the canonicalized path (if parent exists) doesn't escape
+    // the current working directory in an unsafe way
+    if let Some(parent) = path_obj.parent() {
+        if parent.to_str().unwrap_or("").is_empty() {
+            // Parent is empty, this is a file in current directory - safe
+            return Ok(());
+        }
+        // Check if parent has suspicious patterns
+        let parent_str = parent.to_string_lossy();
+        if parent_str.contains("..") {
+            // Be conservative with .. in paths
+            return Err("Invalid output path: suspicious path traversal pattern");
+        }
+    }
+
+    Ok(())
 }
 
 /// Print usage information

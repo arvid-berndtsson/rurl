@@ -157,8 +157,7 @@ pub fn read_http_response<T: Read>(stream: &mut T, verbose: bool) -> Result<Vec<
 /// Get the TLS protocol version from the specified string
 fn get_tls_protocol_version(version: &str) -> Option<native_tls::Protocol> {
     match version.trim() {
-        "1.0" => Some(native_tls::Protocol::Tlsv10),
-        "1.1" => Some(native_tls::Protocol::Tlsv11),
+        // TLS 1.0 and 1.1 are deprecated and insecure, no longer supported
         "1.2" => Some(native_tls::Protocol::Tlsv12),
         // TLS 1.3 is not explicitly supported in native-tls yet, but we can try to leave it to the system
         "1.3" => None,

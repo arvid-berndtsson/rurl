@@ -387,3 +387,108 @@ fn test_tls_version_environment() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Using minimum TLS version: 1.3"));
 }
+
+#[test]
+fn test_path_traversal_protection() {
+    // Test that path traversal attempts are blocked
+    let output = std::process::Command::new("cargo")
+        .args(["run", "--", "http://example.com", "-o", "../../../etc/passwd"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Invalid output path") || stderr.contains("suspicious path traversal"),
+        "Expected path traversal error, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_null_byte_in_path() {
+    // Test that null bytes in paths are blocked
+    // Note: The process command itself rejects null bytes, which is good for security
+    // This test verifies that behavior
+    let result = std::process::Command::new("cargo")
+        .args(["run", "--", "http://example.com", "-o", "file\0.txt"])
+        .output();
+
+    // The command should fail to even be created/run with null bytes
+    assert!(
+        result.is_err(),
+        "Command with null byte in argument should fail"
+    );
+}
+
+#[test]
+fn test_system_directory_protection() {
+    // Test that writing to system directories is blocked
+    let output = std::process::Command::new("cargo")
+        .args(["run", "--", "http://example.com", "-o", "/etc/shadow"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Invalid output path") || stderr.contains("system directories"),
+        "Expected system directory error, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_deprecated_tls_versions_rejected() {
+    // Test that TLS 1.0 is not supported (returns None, uses default 1.2)
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "--tls-version",
+            "1.0",
+            "https://example.com",
+        ])
+        .output()
+        .unwrap();
+
+    // Since TLS 1.0 returns None, it should use the default TLS 1.2
+    // The command might fail due to network issues, but it shouldn't accept 1.0 explicitly
+    let _stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    // Check that TLS 1.0 is not being used
+    assert!(
+        !stdout.contains("Using minimum TLS version: 1.0"),
+        "TLS 1.0 should not be supported"
+    );
+}
+
+#[test]
+fn test_valid_output_path_allowed() {
+    // Test that valid output paths in current directory are allowed
+    let server = MockServer::new();
+    let port = server.port();
+    thread::spawn(move || server.run());
+
+    thread::sleep(Duration::from_millis(100));
+
+    let output_file = "valid_output.txt";
+    let output = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            &format!("http://127.0.0.1:{}", port),
+            "-o",
+            output_file,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "Valid output path should be allowed");
+    
+    // Cleanup
+    if std::path::Path::new(output_file).exists() {
+        std::fs::remove_file(output_file).unwrap();
+    }
+}
