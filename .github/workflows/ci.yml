@@ -10,26 +10,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
         with:
-          node-version: 22
+          toolchain: stable
+          profile: minimal
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: true
+      - name: Install cc-check
+        run: cargo install cc-check
 
-      - name: Print versions
-        run: |
-          git --version
-          node --version
-          pnpm --version
-
-      - name: Validate current commit (last commit) with commitlint
+      - name: Validate current commit (last commit) with cc-check
         if: github.event_name == 'push'
-        run: pnpm exec commitlint --last --verbose
+        run: git log -1 --pretty=%B > /tmp/commit_msg.txt && cc-check check /tmp/commit_msg.txt
 
-      - name: Validate PR commits with commitlint
+      - name: Validate PR commits with cc-check
         if: github.event_name == 'pull_request'
-        run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+        run: |
+          git log --format=%B --reverse ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} | \
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              echo "$line" >> /tmp/commit_msg.txt
+            else
+              if [ -s /tmp/commit_msg.txt ]; then
+                cc-check check /tmp/commit_msg.txt
+                > /tmp/commit_msg.txt
+              fi
+            fi
+          done
+          if [ -s /tmp/commit_msg.txt ]; then
+            cc-check check /tmp/commit_msg.txt
+          fi
