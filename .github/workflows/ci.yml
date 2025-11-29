@@ -16,8 +16,14 @@ jobs:
           toolchain: stable
           profile: minimal
 
+      - name: Cache cc-check
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cc-check
+          key: ${{ runner.os }}-cc-check-0.1.4
+
       - name: Install cc-check
-        run: cargo install cc-check
+        run: cargo install cc-check --version 0.1.4
 
       - name: Validate current commit (last commit) with cc-check
         if: github.event_name == 'push'
@@ -26,17 +32,7 @@ jobs:
       - name: Validate PR commits with cc-check
         if: github.event_name == 'pull_request'
         run: |
-          git log --format=%B --reverse ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} | \
-          while IFS= read -r line; do
-            if [ -n "$line" ]; then
-              echo "$line" >> /tmp/commit_msg.txt
-            else
-              if [ -s /tmp/commit_msg.txt ]; then
-                cc-check check /tmp/commit_msg.txt
-                > /tmp/commit_msg.txt
-              fi
-            fi
-          done
-          if [ -s /tmp/commit_msg.txt ]; then
+          for sha in $(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            git log -1 --pretty=%B $sha > /tmp/commit_msg.txt
             cc-check check /tmp/commit_msg.txt
-          fi
+          done

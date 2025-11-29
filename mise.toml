@@ -32,7 +32,7 @@ run = "cargo clippy -- -D warnings"
 
 [tasks."lint:commitlint"]
 description = "Validate commit message format"
-run = "cc-check check"
+run = "cc-check check $@"
 hide = true
 
 # ///////////////
