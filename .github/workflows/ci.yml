@@ -10,26 +10,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
         with:
-          node-version: 22
+          toolchain: stable
+          profile: minimal
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - name: Cache cc-check
+        uses: actions/cache@v4
         with:
-          run_install: true
+          path: ~/.cargo/bin/cc-check
+          key: ${{ runner.os }}-cc-check-0.1.4
 
-      - name: Print versions
-        run: |
-          git --version
-          node --version
-          pnpm --version
+      - name: Install cc-check
+        run: cargo install cc-check --version 0.1.4
 
-      - name: Validate current commit (last commit) with commitlint
+      - name: Validate current commit (last commit) with cc-check
         if: github.event_name == 'push'
-        run: pnpm exec commitlint --last --verbose
+        run: git log -1 --pretty=%B > /tmp/commit_msg.txt && cc-check check /tmp/commit_msg.txt
 
-      - name: Validate PR commits with commitlint
+      - name: Validate PR commits with cc-check
         if: github.event_name == 'pull_request'
-        run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+        run: |
+          for sha in $(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            git log -1 --pretty=%B $sha > /tmp/commit_msg.txt
+            cc-check check /tmp/commit_msg.txt
+          done

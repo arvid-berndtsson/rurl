@@ -13,6 +13,9 @@ categories = ["command-line-utilities", "web-programming"]
 [dependencies]
 native-tls = "0.2"
 
+[dev-dependencies]
+cc-check = "0.1.4"
+
 [[bin]]
 name = "rurl"
 path = "src/main.rs"
